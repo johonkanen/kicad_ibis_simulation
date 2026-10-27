@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+work/
+models/
+*.ibs
+*.kicad_prl
