@@ -19,6 +19,7 @@ parser problems found so far and their workarounds.
 | `kicad_ibis/p2p.py` | one point-to-point link in one command (schematic, run, eye) |
 | `kicad_ibis/ibisfix.py` | make vendor IBIS files load in KiCad 10; read V-t tables for driver validation |
 | `kicad_ibis/zsolve.py` | 2D field solver: trace width -> Z0, ps/mm; edge-coupled pairs -> Zodd/Zdiff/Zeven (stripline, microstrip with mask) |
+| `kicad_ibis/fastnet.py` | fast sweeps: SPICE netlist written directly, each IBIS buffer converted once (cache), bit patterns (PRBS, complement, shift, constant) built from KIBIS' own edge coefficients, short lines lumped |
 
 ## Set-up
 
@@ -54,6 +55,20 @@ python3 -m kicad_ibis.show_eye work/x.dat --drv xu1.die0 --rx dq_rx xu2.die0 --r
 
 A full project using it (LPDDR4, FPGA to DRAM, sweeps over impedance, length, corners and data rate):
 `sim/lpddr4_si/` in https://github.com/johonkanen/agilex3_soc_control_card.
+
+## Fast sweeps (`fastnet`)
+
+kicad-cli's IBIS converter costs ~15 s per driver at 150 bits and grows steeply with the bit count. A sweep that
+re-exports a schematic per point spends nearly all its time there, converting the same buffers again.
+
+`fastnet` instead:
+- converts every distinct buffer once, with a 40-bit PRBS, and caches it by file, pin, model, corner and bit rate;
+- builds the long stimulus from that conversion's own rising and falling Ku/Kd segments;
+- writes the netlist directly.
+
+A 4-netlist LPDDR4 check went from minutes to ~13 s (2 s of conversion, 0 s once cached). It agrees with the
+kicad-cli path to ≤ 2 ps of time margin and ~10 mV of eye height. The complement pattern also gives working
+differential pairs: KiCad 10's IBIS_DRIVER_DIFF comes out with empty Ku/Kd.
 
 ## Limits
 

@@ -53,6 +53,10 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 4. **Export and run:** `spice.export(sch_path)` (serially: KIBIS shares one cache folder), then
    `spice.ngspice(cir, nodes, dat)` (parallel is fine, e.g. ProcessPoolExecutor). Probe the receiver pin (net name)
    and die (`x<ref>.die0`, ref lower case).
+   **For sweeps use `kicad_ibis.fastnet`** (`Netlist` + `KibisCache`). It converts each IBIS buffer once, builds
+   the bit patterns in Python and writes the netlist directly: minutes become seconds. Keep one `Sch` schematic of
+   the baseline for Eeschema. Give kicad-cli a private `XDG_CACHE_HOME` (fastnet does): other processes clear
+   `~/.cache/kicad/10.0/ibis` mid-run.
 5. **Eyes:** `eye.analyse(t, v_driver_die, v_rx, ui, mask)`; show one with
    `python3 -m kicad_ibis.show_eye work/x.dat --drv xu1.die0 --rx xu2.die0 --rate 1600 --mask rect:140m:0.22`
    (interactive window; `--png` to save). Quick single link: `python3 -m kicad_ibis.p2p ...`.
@@ -81,6 +85,13 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 | headless CLI | only the parser's last message is printed | export one model at a time when debugging |
 | KIBIS warning "Bitrate could be too high for rising / falling edges" | printed for most fast links | harmless; `export` filters it |
 | AMI (`[Algorithmic Model]`) | not supported | analog only: `ibisfix.extract_models` drops it |
+| IBIS_DRIVER_DIFF (PRBS and RECTDRIVER) | empty Ku/Kd (`pwl ( )`), flat output | two single-ended drivers of the `_diff` model, N leg = `fastnet` pattern ('inv', P ref) |
+| PRBS `td`, model `Polarity Inverting` | ignored | `fastnet` patterns ('shift', k) / ('inv', ref) |
+| RECTDRIVER with a V-t table longer than ton | "Rising edge is longer than on time", export fails | trim the tables' flat delay and tail, or use PRBS |
+| shared `~/.cache/kicad/10.0/ibis` | files vanish when another process exports | private `XDG_CACHE_HOME` per kicad-cli run |
+| lossless lines (T) of a few fs/ps | ngspice "timestep too small", or runs of many minutes | `fastnet` lumps lines < 15 ps into damped L/C sections; retry a stopped run with `.options method=trap` |
+| undamped lumped L/C of a short line | 100+ GHz tank, ngspice crawls | R = Z0 across the L (`fastnet` does) |
+| one netlist with ~100 IBIS drivers | ngspice > 9 GB, OOM | ~4 drivers per netlist (≈0.3 GB each at 150 bits) |
 
 ## Eye analysis pitfalls (handled in `kicad_ibis.eye`; keep them in mind when changing it)
 
