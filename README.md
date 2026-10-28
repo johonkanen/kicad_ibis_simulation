@@ -18,7 +18,7 @@ parser problems found so far and their workarounds.
 | `kicad_ibis/show_eye.py` | interactive eye viewer for any ngspice `wrdata` file |
 | `kicad_ibis/p2p.py` | one point-to-point link in one command (schematic, run, eye) |
 | `kicad_ibis/ibisfix.py` | make vendor IBIS files load in KiCad 10; read V-t tables for driver validation |
-| `kicad_ibis/zsolve.py` | 2D field solver: trace width -> Z0, ps/mm (stripline, microstrip with mask) |
+| `kicad_ibis/zsolve.py` | 2D field solver: trace width -> Z0, ps/mm; edge-coupled pairs -> Zodd/Zdiff/Zeven (stripline, microstrip with mask) |
 
 ## Set-up
 
@@ -40,6 +40,8 @@ python3 -m kicad_ibis.ibisfix vendor.ibs models/vendor_kicad.ibs
 
 # trace width -> impedance
 python3 -m kicad_ibis.zsolve strip --below 0.357 --above 0.1 --t 0.0152 --er-below 4.16 --er-above 4.6 -w 0.1 0.12
+# ... and a differential pair (adds --gap): Zodd, Zdiff, Zeven, Zcm, odd/even ps/mm
+python3 -m kicad_ibis.zsolve strip --below 0.357 --above 0.1 --t 0.0152 --er-below 4.16 --er-above 4.6 -w 0.1 --gap 0.1 0.2
 
 # one link, LPDDR4 write at 1600 MT/s
 python3 -m kicad_ibis.p2p --drv models/fpga.ibs:FPGA:T62:out_40 --rx models/dram.ibs:DRAM:C11:ODT_48 \
@@ -55,6 +57,6 @@ A full project using it (LPDDR4, FPGA to DRAM, sweeps over impedance, length, co
 
 ## Limits
 
-Lossless lines, no coupling (no crosstalk, no coupled differential pairs), no SSO/power-integrity, no AMI/jitter.
+Lossless lines, no coupling in the simulation (no crosstalk; a differential pair is simulated as two uncoupled legs at its odd-mode impedance from `zsolve --gap`), no SSO/power-integrity, no AMI/jitter.
 Good for termination, drive-strength, topology and trace-width decisions on short parallel buses; not a substitute
 for a full SI tool on SerDes links.

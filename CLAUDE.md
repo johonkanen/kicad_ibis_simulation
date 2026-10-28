@@ -44,7 +44,9 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
    are TLINEs joined at the T node. Use `kicad_ibis.sch.Sch`; put all channels of one sweep point into one schematic
    (one row each), one schematic per sweep point.
 2. **Line impedance and delay** from the stack-up: `python3 -m kicad_ibis.zsolve strip|micro ...` (2D field solve,
-   lossless). Typical vias: 0.15-0.5 nH, 0.3-0.5 pF; say they are estimates unless solved.
+   lossless); add `--gap` for an edge-coupled pair (Zodd, Zdiff = 2 Zodd, Zeven). A symmetrically driven pair
+   (DQS, CK) is simulated as single-ended legs on TLINEs of Zodd (and the odd-mode ps/mm); say so, because P/N
+   skew, mode conversion and crosstalk are then not modelled. Typical vias: 0.15-0.5 nH, 0.3-0.5 pF; say they are estimates unless solved.
 3. **Stimulus:** `PRBSDRIVER` with `f0=<bit rate> n=<bits>` (f0 is the BIT rate, not the clock), ~150 bits, plus
    `.tran 1p <bits*UI + 2 ns>` and `.options method=gear maxord=2 reltol=1e-4`. Corners: append
    ` vcc=MIN rpin=MIN lpin=MIN cpin=MIN` (or MAX) to the driver and receiver params, upper case.
