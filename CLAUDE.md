@@ -11,6 +11,7 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 
 ## Rules
 
+- **Before a long sweep, read `USER_GUIDE.md`** (hangs, speed-ups, RAM, stopping a sweep).
 - **Vendor IBIS files are copyrighted.** Never commit them (most board repos are public). Keep them in a
   git-ignored `models/` folder next to the simulation and write in its README where each file comes from (URL, tool
   and command that generated it, version).
@@ -41,8 +42,9 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 
 1. **Channel model** per net: IBIS driver (pin package R/L/C, C_comp) -> via (pi: C/2, L, C/2) -> TLINE segments
    (breakout neck-down, route, neck-down) -> via -> IBIS receiver / ODT model. T-topologies (DDR CA/CK to two dies)
-   are TLINEs joined at the T node. Use `kicad_ibis.sch.Sch`; put all channels of one sweep point into one schematic
-   (one row each), one schematic per sweep point.
+   are TLINEs joined at the T node. Use `kicad_ibis.sch.Sch` for the baseline schematic (one row per channel). For
+   sweeps, **one net per netlist** (uncoupled nets): in a shared netlist every net runs at the timestep of the
+   busiest edge of all of them (an 11-net byte: > 75 min; each net alone: 11-20 s). See `USER_GUIDE.md`.
 2. **Line impedance and delay** from the stack-up: `python3 -m kicad_ibis.zsolve strip|micro ...` (2D field solve,
    lossless); add `--gap` for an edge-coupled pair (Zodd, Zdiff = 2 Zodd, Zeven). A symmetrically driven pair
    (DQS, CK) is simulated as single-ended legs on TLINEs of Zodd (and the odd-mode ps/mm); say so, because P/N
@@ -91,7 +93,9 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 | shared `~/.cache/kicad/10.0/ibis` | files vanish when another process exports | private `XDG_CACHE_HOME` per kicad-cli run |
 | lossless lines (T) of a few fs/ps | ngspice "timestep too small", or runs of many minutes | `fastnet` lumps lines < 15 ps into damped L/C sections; retry a stopped run with `.options method=trap` |
 | undamped lumped L/C of a short line | 100+ GHz tank, ngspice crawls | R = Z0 across the L (`fastnet` does) |
-| one netlist with ~100 IBIS drivers | ngspice > 9 GB, OOM | ~4 drivers per netlist (≈0.3 GB each at 150 bits) |
+| one netlist with ~100 IBIS drivers | ngspice > 9 GB, OOM | one net per netlist; `.save` only the probed vectors |
+| several real-copper nets in one netlist | runs for hours, no output (looks hung) | one net per netlist (`USER_GUIDE.md`) |
+| ngspice gives no progress | `.log` appears only at the end; `pgrep ngspice` finds nothing (it is libngspice in `python3 -I -c`) | `pgrep -af libngspice`; compare `ps` TIME with ELAPSED |
 
 ## Eye analysis pitfalls (handled in `kicad_ibis.eye`; keep them in mind when changing it)
 

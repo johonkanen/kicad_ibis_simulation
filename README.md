@@ -8,6 +8,9 @@ open and simulate in Eeschema.
 `CLAUDE.md` is the full method (for Claude Code, and a good checklist for people too), including the KiCad 10 IBIS
 parser problems found so far and their workarounds.
 
+**`USER_GUIDE.md`: read it before any long sweep.** It covers why runs hang or crawl (many nets in one netlist, all
+nodes saved, short lines, sleep), how to tell slow from hung, how to size `-j`, and how to stop a sweep cleanly.
+
 ## Contents
 
 | module | what |
