@@ -7,7 +7,7 @@ KiCad's delay model, your own model of the board, the DRC rules and the tuning p
 
 Reference implementation (LPDDR4, Efinix Ti135 + one x32 die, T-branched CA/CK):
 [johonkanen/efinix_soc_board](https://github.com/johonkanen/efinix_soc_board) `tools/ddr/`: `kicad_delays.sh`,
-`ddr_timing.py`, `delay_rules.sh`, `pattern_targets.py`.
+`ddr_timing.py`, `delay_rules.sh`.
 
 ## 1. How KiCad counts delay
 
@@ -64,13 +64,14 @@ branches.
   target is at least the latest DQS + 5 ps.
 - **Point-to-point nets:** `(min T+lo) (opt T+opt) (max T+hi)`, all in ps. The tuner sizes the meander to opt and
   shows the pattern green anywhere between min and max.
-- **Branched nets (T or fly-by):** the rule is **path target + that net's other branches** (KiCad readout minus model
-  path, measured on the routed board), +-tol. DRC is then exact on the path. The **tuning patterns** of those nets
-  must not use the rule, because the tuner would aim one branch too long. Set each pattern's own target to the path
-  target: in the `(generated (type tuning_pattern) ...)` block, `(override_custom_rules yes)` and
-  `(target_delay opt) (target_delay_min min) (target_delay_max max)`. Do this by script (`pattern_targets.py`, a text
-  edit of those blocks) **only with the board closed in pcbnew**, or by hand in each pattern's properties
-  (Override custom rules).
+- **Branched nets (T or fly-by):** one rule must serve the tuner (path) and DRC (whole net). Put **min and opt in
+  path terms** and **max = path target + tol + that net's other branches** (KiCad readout minus model path, measured
+  on the routed board). The tuner, and pcbnew's "Update all tuning patterns", aim at opt, so the meander lands on the
+  path target. A path below min shows in the tuner (pattern not green). DRC (whole net = path + branch) shows a net
+  that is too long. **Good = the pattern is green after an update and DRC is green.** Do not put the rule in whole-net
+  terms and override the tuning patterns with the path target (`override_custom_rules`): when the GUI regenerates
+  the patterns it tunes them to the rule and ignores the override (KiCad 10.0.7, seen 2026-10-31: CK and CKE grew by
+  ~24 ps).
 - **Skew rules** (`skew ... within_diff_pairs`) compare whole nets. On a branched pair (CK) the branches differ, so
   the rule can never pass. Leave that pair out of the skew rule and hold P and N with their own per-net windows:
   +-tol each gives P/N <= 2 tol, so choose tol below half the guide's limit (CK 0.9 ps -> +-0.4 ps).
@@ -83,8 +84,10 @@ branches.
 
 ## 5. Pitfalls
 
-- A tuning pattern's colour is the status saved when it was last edited (`last_status`), not live. **DRC is the
-  live check**: run it after any change before calling the bus tuned.
+- A tuning pattern's colour is the status saved when it was last updated (`last_status`), not live. Run "Update
+  all tuning patterns" and DRC after any change before calling the bus tuned.
+- Commit (or copy) the board before running an update or DRC in the GUI. In one session (KiCad 10.0.7) every tuning
+  pattern was turned into plain tracks with new IDs; the patterns could not be restored onto the new tracks.
 - KiCad DRC reports at most 199 items of one type.
 - Unfilled zones give pages of clearance errors on a copy: run `kicad-cli pcb drc --refill-zones` when comparing
   two boards.
