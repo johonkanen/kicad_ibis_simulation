@@ -1,0 +1,95 @@
+# Delay-matching rules in KiCad 10 (time domain): instructions for Claude
+
+Use this when a bus (DDR/LPDDR, a parallel interface) must be matched in time, so that pcbnew's tuning patterns and
+DRC hold the targets. The goal is that **green means good**: a net inside its rule meets the timing checks of the
+part's design guide. The IBIS simulation then checks the routed result. Getting there needs four things to agree:
+KiCad's delay model, your own model of the board, the DRC rules and the tuning patterns.
+
+Reference implementation (LPDDR4, Efinix Ti135 + one x32 die, T-branched CA/CK):
+[johonkanen/efinix_soc_board](https://github.com/johonkanen/efinix_soc_board) `tools/ddr/`: `kicad_delays.sh`,
+`ddr_timing.py`, `delay_rules.sh`, `pattern_targets.py`.
+
+## 1. How KiCad counts delay
+
+- **Tuning profile** (Board Setup > Tuning Profiles, saved in the `.kicad_pro` under `tuning_profiles`): one
+  propagation delay per signal layer (ps/mm) and one `via_prop_delay` (ps per mm of barrel). Take the layer values
+  from a field solve of the real stack-up (`python3 -m kicad_ibis.zsolve`), not from a rule of thumb.
+- **A via** counts the stack-up height between the outermost layers it joins, times `via_prop_delay`. On a 1.6 mm
+  8-layer board at 7.2 ps/mm that is F.Cu->In2 1.8 ps, F.Cu->In5 9.4 ps and F.Cu->B.Cu 11.1 ps. A flat "x ps per via"
+  is wrong by several ps, and wrong by a different amount per layer pair, which matters when a byte's DQS and DQ run
+  on different layers.
+- **Pad-to-die delay** (pad property) adds the package delay of a pad. Set it on the device pads from the vendor's
+  package data. A part without public package data gets 0; say so.
+- **DRC** (`length` constraint in ps) sums **all** of the net's copper: every branch, stub and loop.
+- **The tuner** (tuning pattern) reads the **pad-to-pad path** through the pattern's track.
+- On a point-to-point net with clean copper the two agree. On a **branched** net (a DDR CA/CK T or fly-by) DRC reads
+  the path plus the other branches. A stray stub or a duplicated segment makes DRC read more than the tuner. That
+  can hide a real stub: look for it, don't widen the rule.
+
+## 2. Read KiCad's own numbers
+
+Get the delay per net from KiCad itself with a probe rule on a copy of the board. Add a rule that every matched net
+fails, run DRC headless, and parse the `actual` value of each `length_out_of_range` item:
+
+```
+(rule "probe_delay"
+	(condition "A.hasNetclass('lpddr_dq') || A.hasNetclass('lpddr_ca') || A.hasNetclass('lpddr_diff')")
+	(constraint length (min 1ps) (max 2ps)))
+```
+
+`kicad-cli pcb drc --severity-all -o out.rpt copy.kicad_pcb` then gives "actual N ps" per net (`kicad_delays.sh`).
+The copy needs the project's `.kicad_pro` and `.kicad_dru` next to it under the same base name, or the tuning
+profile is missing.
+
+## 3. Your model must reproduce KiCad
+
+Build your own per-net model from the board (pcbnew Python): a copper graph per net, with per-layer delays from the
+same profile, vias by stack-up height (layer depths from the board's `(stackup ...)`), and pad-to-die on the pads.
+Then take the shortest path from the driver pad to each receiver pad. Use it to compute targets and the path of
+branched nets.
+
+**Check it before using it.** Print KiCad readout minus model path for every net. On point-to-point nets it must be
+~0 (within about 1 ps). A constant offset on all nets of one layer means the via model is wrong. A single net far off
+means extra copper (a stub or loop) on that net: fix the board. On a branched net the difference is that net's other
+branches.
+
+## 4. Rules that make green mean good
+
+- **Generate the rules, never hand-edit them.** Write one `length` rule per net or group into a marked block at the
+  end of the `.kicad_dru` (`# ---- BEGIN generated ... ----` / `END`), and regenerate after every reroute. Later
+  rules win in KiCad, so a hand exception placed before the block can be overridden by it; put net-specific
+  exceptions for other constraint types (widths) before the block.
+- **Targets follow the longest net of a group.** Meanders only add delay, so the group target is at least the
+  longest member. Add the guide's ordering constraints, for example Efinix: every DQS shorter than CK, so the CA/CK
+  target is at least the latest DQS + 5 ps.
+- **Point-to-point nets:** `(min T+lo) (opt T+opt) (max T+hi)`, all in ps. The tuner sizes the meander to opt and
+  shows the pattern green anywhere between min and max.
+- **Branched nets (T or fly-by):** the rule is **path target + that net's other branches** (KiCad readout minus model
+  path, measured on the routed board), +-tol. DRC is then exact on the path. The **tuning patterns** of those nets
+  must not use the rule, because the tuner would aim one branch too long. Set each pattern's own target to the path
+  target: in the `(generated (type tuning_pattern) ...)` block, `(override_custom_rules yes)` and
+  `(target_delay opt) (target_delay_min min) (target_delay_max max)`. Do this by script (`pattern_targets.py`, a text
+  edit of those blocks) **only with the board closed in pcbnew**, or by hand in each pattern's properties
+  (Override custom rules).
+- **Skew rules** (`skew ... within_diff_pairs`) compare whole nets. On a branched pair (CK) the branches differ, so
+  the rule can never pass. Leave that pair out of the skew rule and hold P and N with their own per-net windows:
+  +-tol each gives P/N <= 2 tol, so choose tol below half the guide's limit (CK 0.9 ps -> +-0.4 ps).
+- **Centre what should be centred.** Group members around a common target (CA vs CK): opt at the target, +-tol
+  symmetric, with 2 tol inside the guide's limit. For a window that is one-sided in the guide (DQ - DQS 0..66 ps),
+  aim near the low edge (opt DQS + 10) and keep the max tight (DQS + 15). Then every DQ in a byte sits within 10 ps
+  of the others. A wide max lets meanders drift and turns into DQ-to-DQ skew while everything shows green.
+- **Tolerances are the margin between the guide's limit and your model error.** Prove the model error small
+  (section 3) before you spend the margin.
+
+## 5. Pitfalls
+
+- A tuning pattern's colour is the status saved when it was last edited (`last_status`), not live. **DRC is the
+  live check**: run it after any change before calling the bus tuned.
+- KiCad DRC reports at most 199 items of one type.
+- Unfilled zones give pages of clearance errors on a copy: run `kicad-cli pcb drc --refill-zones` when comparing
+  two boards.
+- Tiny leftover track pieces (0.05 mm) next to a pattern or via can make the tuner read a different path. Look at
+  the copper of any net whose readout and model disagree.
+- Before writing the `.kicad_pcb`: the user may have it open. Work on a copy, check that the real file is unchanged
+  since you copied it (`cmp`), and only then copy back.
+- Report what is off as numbers per net (now -> target, ps), plus how much meander that is on its layer (ps / ps/mm).

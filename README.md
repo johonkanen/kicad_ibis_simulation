@@ -5,6 +5,9 @@ TLINEs, vias), `kicad-cli` converts it to SPICE (KiCad's IBIS converter, KIBIS),
 eye tools fold the result into eye diagrams with Rx-mask margins. The schematics remain ordinary KiCad files that
 open and simulate in Eeschema.
 
+`DELAY_RULES.md` covers the step before simulation: KiCad 10 time-domain delay rules and tuning patterns that
+match the design guide (via and pad-to-die delays, tuner vs DRC on branched nets).
+
 `CLAUDE.md` is the full method (for Claude Code, and a good checklist for people too), including the KiCad 10 IBIS
 parser problems found so far and their workarounds.
 

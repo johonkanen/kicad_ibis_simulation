@@ -12,6 +12,8 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 ## Rules
 
 - **Before a long sweep, read `USER_GUIDE.md`** (hangs, speed-ups, RAM, stopping a sweep).
+- **Before setting up delay matching (length/time rules, tuning patterns) for a bus, read `DELAY_RULES.md`**: how
+  KiCad counts delay (vias, pad-to-die, tuner vs DRC), and rules for branched nets so green in pcbnew means good.
 - **Vendor IBIS files are copyrighted.** Never commit them (most board repos are public). Keep them in a
   git-ignored `models/` folder next to the simulation and write in its README where each file comes from (URL, tool
   and command that generated it, version).
