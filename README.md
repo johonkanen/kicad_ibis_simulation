@@ -23,9 +23,9 @@ nodes saved, short lines, sleep), how to tell slow from hung, how to size `-j`, 
 | `kicad_ibis/eye.py` | KIBIS PRBS7 bit labels, folding, eye height/width, mask margins, plots |
 | `kicad_ibis/show_eye.py` | interactive eye viewer for any ngspice `wrdata` file |
 | `kicad_ibis/p2p.py` | one point-to-point link in one command (schematic, run, eye) |
-| `kicad_ibis/ibisfix.py` | make vendor IBIS files load in KiCad 10; read V-t tables for driver validation |
+| `kicad_ibis/ibisfix.py` | make vendor IBIS files load in KiCad 10; read V-t tables for driver validation; corner files (`corner_as_typ`: KiCad's `vcc=MIN/MAX` is right only into the V-t fixture), `r_fixture`, `dc_high` (a driver's level into any load from its V-I tables) |
 | `kicad_ibis/zsolve.py` | 2D field solver: trace width -> Z0, ps/mm; edge-coupled pairs -> Zodd/Zdiff/Zeven (stripline, microstrip with mask) |
-| `kicad_ibis/fastnet.py` | fast sweeps: SPICE netlist written directly, each IBIS buffer converted once (cache), bit patterns (PRBS, complement, shift, constant) built from KIBIS' own edge coefficients, short lines lumped |
+| `kicad_ibis/fastnet.py` | fast sweeps: SPICE netlist written directly, each IBIS buffer converted once (cache), bit patterns (PRBS, complement, shift, constant) built from KIBIS' own edge coefficients, short lines lumped; `coupled()`: n coupled lines as a lumped ladder (ngspice's CPL fails) |
 
 ## Set-up
 

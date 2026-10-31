@@ -133,6 +133,28 @@ class Netlist:
     def via(self, a, b, L, C):
         self.c(a, '0', C / 2); self.l(a, b, L); self.c(b, '0', C / 2)
 
+    def coupled(self, nodes_in, nodes_out, Lm, Cm, length, rdc=0.0, dl=0.25e-3):
+        """n coupled lines between nodes_in[i] and nodes_out[i] (length in m) as a lumped ladder of dl-long sections
+        (0.25 mm, ~1.75 ps on a stripline: far shorter than any LPDDR4 edge): per section the self L with mutual K,
+        C to ground (row sum of the Maxwell matrix) and C between lines, rdc (ohm/m) in series. Lm (H/m) and Cm (F/m,
+        Maxwell: diagonal total, off-diagonal negative) from a 2D field solve. ngspice's CPL element stopped every
+        LPDDR4 run with "timestep too small"; the ladder runs."""
+        n = len(nodes_in); secs = max(1, int(round(length / dl))); d = length / secs
+        prev = list(nodes_in)
+        for k in range(secs):
+            self.k += 1; tag = f'cp{self.k}'
+            nxt = list(nodes_out) if k == secs - 1 else [f'{tag}_{i}' for i in range(n)]
+            for i in range(n):
+                mid = f'{tag}_r{i}'
+                self.lines.append(f'R{tag}_{i} {prev[i]} {mid} {_eng(max(rdc * d, 1e-6))}')
+                self.lines.append(f'L{tag}_{i} {mid} {nxt[i]} {_eng(Lm[i][i] * d)}')
+                self.lines.append(f'C{tag}_g{i} {nxt[i]} 0 {_eng(sum(Cm[i]) * d)}')
+            for i in range(n):
+                for j in range(i + 1, n):
+                    self.lines.append(f'K{tag}_{i}{j} L{tag}_{i} L{tag}_{j} {Lm[i][j] / (Lm[i][i] * Lm[j][j]) ** 0.5:.6f}')
+                    self.lines.append(f'C{tag}_m{i}{j} {nxt[i]} {nxt[j]} {_eng(-Cm[i][j] * d)}')
+            prev = nxt
+
     def directive(self, s): self.directives.append(s)
 
     def ibis(self, ref, kind, lib, comp, pin, model, nets, params='', stype=None, pattern=None):

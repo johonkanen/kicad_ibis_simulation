@@ -64,10 +64,15 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 5. **Eyes:** `eye.analyse(t, v_driver_die, v_rx, ui, mask)`; show one with
    `python3 -m kicad_ibis.show_eye work/x.dat --drv xu1.die0 --rx xu2.die0 --rate 1600 --mask rect:140m:0.22`
    (interactive window; `--png` to save). Quick single link: `python3 -m kicad_ibis.p2p ...`.
-6. **Validate the converted drivers** first: each driver as `RECTDRIVER` (`ton=3n toff=3n td=1n n=1`) into 50 ohm to
-   GND, package zeroed (`spice.strip_package` on the copied cache file), compared with the model's
-   `[Rising/Falling Waveform]` table for V_fixture = 0 (`ibisfix.waveform`, `ibisfix.t2080`): levels within a few mV,
-   20-80 % edges within a few ps. Report any model that is off.
+6. **Validate the converted drivers** first, at every corner you will use: each driver as `RECTDRIVER`
+   (`ton=3n toff=3n td=1n n=1`) into its own fixture to GND (`ibisfix.r_fixture`: it differs per model, e.g. 20,
+   24 or 50 ohm), package zeroed (`spice.strip_package` on the copied cache file), compared with the model's
+   `[Rising/Falling Waveform]` table of that corner for V_fixture = 0 (`ibisfix.waveform(..., col=)`,
+   `ibisfix.t2080`): levels within a few mV, 20-80 % edges within a few ps. **Then the DC high level into the
+   board's real loads** (the ODT values, and open for unterminated nets) against `ibisfix.dc_high` from the model's
+   own V-I tables: a driver can match its fixture and still be wrong elsewhere. **For min/max use corner files**
+   (`ibisfix.corner_as_typ`, simulated at typ), not the `vcc=MIN/MAX` keywords (see the table below). Report any
+   model that is off.
 7. **Judge** each receiver against its Rx mask (JEDEC for DRAM inputs; vendor data for FPGA inputs, or a clearly
    labelled proxy) and the abs-max over/undershoot of both data sheets. Report eye height/width, mask margins
    (V and t), Vmax/Vmin, worst of pin and die, typ and min/max corners, and every assumption.
@@ -84,6 +89,7 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 | `[Define Package Model]` ignored | no package when `[Package]` is zero | `ibisfix.package_to_pins` (self R/L/C only) |
 | Ku/Kd PWL sources with ~1e5 points and solver spikes | ngspice never finishes; spikes on edges | `spice.clean_cache` (on by default in `export`) |
 | corner keywords are case sensitive | `min`/`max` silently give typ | use `MIN`/`MAX` |
+| corner keywords (`vcc=MIN/MAX rpin=...`) right only into R_fixture | high level off into other loads: +46 mV into 60 ohm, +129 mV open (an Efinix LPDDR4 driver at MAX) | `ibisfix.corner_as_typ` (min/max column as typ), simulate at typ; check with `ibisfix.dc_high` |
 | C_comp has no corner | always typ | note it |
 | PRBS `f0` | is the bit rate | `f0 = 1/UI` |
 | headless CLI | only the parser's last message is printed | export one model at a time when debugging |
@@ -93,6 +99,7 @@ The package is `kicad_ibis/` in this repo. Usually it is a git submodule of the 
 | PRBS `td`, model `Polarity Inverting` | ignored | `fastnet` patterns ('shift', k) / ('inv', ref) |
 | RECTDRIVER with a V-t table longer than ton | "Rising edge is longer than on time", export fails | trim the tables' flat delay and tail, or use PRBS |
 | shared `~/.cache/kicad/10.0/ibis` | files vanish when another process exports | private `XDG_CACHE_HOME` per kicad-cli run |
+| ngspice CPL (coupled lines) | "timestep too small" a few ns into every run | `fastnet.Netlist.coupled` (lumped ladder from the L/C matrices) |
 | lossless lines (T) of a few fs/ps | ngspice "timestep too small", or runs of many minutes | `fastnet` lumps lines < 15 ps into damped L/C sections; retry a stopped run with `.options method=trap` |
 | undamped lumped L/C of a short line | 100+ GHz tank, ngspice crawls | R = Z0 across the L (`fastnet` does) |
 | one netlist with ~100 IBIS drivers | ngspice > 9 GB, OOM | one net per netlist; `.save` only the probed vectors |
