@@ -92,6 +92,18 @@ branches.
 
 What the user does in the GUI, and what to tell them. Observed with KiCad 10.0.7.
 
+### Configuration that worked (LPDDR4, 8-layer 1.6 mm, 52 patterns)
+
+| Where | Setting |
+|---|---|
+| Board Setup > Tuning Profiles | One profile per impedance class, time-domain tuning enabled: `LPDDR4 SE 40R` (single-ended) and `LPDDR4 DIFF 80R` (pairs, with the pair gap per layer). Per signal layer: its reference planes and its delay in ps/mm from the field solve (here F/B.Cu 6.11, In1/In6 6.97, inner striplines 7.00-7.01). Via delay 7.2 ps/mm of barrel. |
+| Net classes (`net_settings.classes[]`) | `tuning_profile` set on every bus class (`lpddr_dq`, `lpddr_ca` -> SE profile; `lpddr_diff` -> DIFF profile). Without it the class has no time-domain profile (no ps targets). `clearance` = the crosstalk spacing (0.2 mm), with DRC exceptions below it (section 5, spacing). |
+| Board Setup > tuning pattern defaults (`tuning_pattern_settings`) | Single track and skew: min amplitude 0.2 mm, max 1.0 mm, spacing 0.6 mm, rounded corners 80 %, two-sided. Diff pair: same, spacing 1.0 mm. |
+| Each pattern | Time domain on; Override custom rules off (targets from the generated rules); rounded, two-sided. Where space was short the user lowered max amplitude (0.5-0.8 mm) and spacing (0.3-0.5 mm) on that pattern; long pair runs needed max amplitude up to 2.6 mm. |
+| Pattern types | Single-track pattern on each single-ended net and on each leg's trunk where needed; diff-pair *length* pattern for a pair's delay; skew patterns only for small P/N corrections (they do not set the pair length). |
+| Interactive router | Walk around (or Shove). |
+| Rules file | Generated `length` rules per net/group (section 4); spacing rules whose BGA exceptions test both items (below). |
+
 - **One tuning pattern per net to tune.** Single-ended nets: a single-track pattern. Differential pairs: a diff-pair
   *length* pattern for the pair's delay. A diff-pair *skew* pattern only matches P to N and never sets the pair's
   length (DQS stayed at its old length while its rule asked for +30 ps). An update also rebuilt one skew pattern
@@ -108,22 +120,25 @@ What the user does in the GUI, and what to tell them. Observed with KiCad 10.0.7
   the reference instead (for a byte, the DQS target, so the longest DQ sits at opt), and lengthen the rest.
 - **"too_short" after an update means the meander ran out of room.** Raise the pattern's max amplitude, stretch it
   over a longer piece of track, or move it.
-- **Spacing to other nets comes from the netclass clearance, not from custom rules.** The router, and the meanders an
-  update builds, kept the netclass clearance (0.1 mm). They ignored a custom `clearance` rule of 0.2 mm between
-  LPDDR4 tracks, both as a warning and as an error, in Walk around mode. Meanders came out 0.12-0.19 mm from their
-  neighbours. Put the crosstalk spacing into the netclass clearance (`net_settings.classes[].clearance` in the
-  `.kicad_pro`; edit it only with pcbnew closed, because KiCad rewrites the file on save). Then add DRC rules that
-  allow less where the larger value does not apply:
+- **Spacing to other nets: the router and the pattern updates hold custom clearance rules, but check every
+  exception's condition with A and B swapped.** A BGA exception written as "A touches the courtyard" also covers a
+  long segment that only starts under the BGA, along its whole length. The router evaluated the rule with that
+  segment as A and used the 0.1 mm exception; DRC took the other order and flagged 0.2 mm. Every meander next to such
+  a segment came out 0.12-0.19 mm from it, whatever the severity of the spacing rule. Require both items on the same
+  courtyard:
 
   ```
-  (rule "bga_clearance"     (condition "<bus netclasses> && (A.intersectsCourtyard('U1') || A.intersectsCourtyard('U2'))") (constraint clearance (min 0.1mm)))
-  (rule "pair_clearance"    (condition "A.hasNetclass('<diff class>') && A.isCoupledDiffPair()")                            (constraint clearance (min 0.1mm)))
-  (rule "other_clearance"   (condition "<bus netclasses on A> && !(<bus netclasses on B>)")                                (constraint clearance (min 0.1mm)))
+  (rule "bga_clearance"
+  	(condition "<bus netclasses on A> && ((A.intersectsCourtyard('U1') && B.intersectsCourtyard('U1')) || (A.intersectsCourtyard('U2') && B.intersectsCourtyard('U2')))")
+  	(constraint clearance (min 0.1mm)))
   ```
 
-  Spacing between two groups (CA to DQ, 3h) cannot be a netclass value: keep it as a DRC rule and check it by hand.
-  Run DRC before and after the netclass change to confirm it adds no errors. **Still to verify:** that the meanders
-  of an update hold the netclass value; check the first update after the change.
+  and the same "both" test in the exemption of the spacing rules. After that fix the meanders held both a 0.2 mm
+  rule inside a group and a 0.3 mm rule between groups. A tuning pattern whose start lies inside a BGA courtyard
+  still got the BGA value: move the pattern's start outside the courtyard. Putting the spacing into the netclass
+  clearance as well (`net_settings.classes[].clearance` in the `.kicad_pro`, edited with pcbnew closed) is a
+  backstop; it then needs DRC rules that allow less under the BGAs (as above), between P and N
+  (`A.isCoupledDiffPair()`) and to copper outside the bus. Run DRC before and after such a change.
 - **Router mode:** Walk around (or Shove), not "Highlight collisions", which places a meander into a clearance and
   only marks it.
 
