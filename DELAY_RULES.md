@@ -68,7 +68,13 @@ branches.
   path terms** and **max = path target + tol + that net's other branches** (KiCad readout minus model path, measured
   on the routed board). The tuner, and pcbnew's "Update all tuning patterns", aim at opt, so the meander lands on the
   path target. A path below min shows in the tuner (pattern not green). DRC (whole net = path + branch) shows a net
-  that is too long. **Good = the pattern is green after an update and DRC is green.** Do not put the rule in whole-net
+  that is too long. **Good = the pattern is green after an update and DRC is green.**
+  **Check the tuner against your model on every branched net.** On some nets the tuner's path takes in part of the
+  other branch (seen: +11 ps, about one pad via, and +3 ps; it depends on how the T is drawn), so those patterns read
+  "tuned" while the real path is short. Each pattern stores its reading in `last_tuning_length` (mm); map it to ps
+  with the pattern's own `target_length_min/max` and `target_delay_min/max` pairs. Shift that net's min/opt by
+  (tuner - path). Readings are as fresh as the last "Update all tuning patterns": regenerate the rules right after an
+  update and save, then update again. Do not put the rule in whole-net
   terms and override the tuning patterns with the path target (`override_custom_rules`): when the GUI regenerates
   the patterns it tunes them to the rule and ignores the override (KiCad 10.0.7, seen 2026-10-31: CK and CKE grew by
   ~24 ps).
@@ -82,7 +88,46 @@ branches.
 - **Tolerances are the margin between the guide's limit and your model error.** Prove the model error small
   (section 3) before you spend the margin.
 
-## 5. Pitfalls
+## 5. Setting up the tuner in pcbnew
+
+What the user does in the GUI, and what to tell them. Observed with KiCad 10.0.7.
+
+- **One tuning pattern per net to tune.** Single-ended nets: a single-track pattern. Differential pairs: a diff-pair
+  *length* pattern for the pair's delay. A diff-pair *skew* pattern only matches P to N and never sets the pair's
+  length (DQS stayed at its old length while its rule asked for +30 ps). An update also rebuilt one skew pattern
+  wrongly: its meander was removed and P/N skew went from 1 ps to 9 ps. Prefer per-leg length rules (+-tol each) to
+  skew patterns.
+- **Leave "Override custom rules" off.** The patterns then take min/opt/max from the generated rules. An override is
+  ignored by "Update all tuning patterns" (section 4).
+- **The work loop:** regenerate the rules (script) -> the user runs "Update all tuning patterns" and saves -> check
+  with your model and DRC (`--refill-zones`) -> regenerate the rules if a tuner offset or target moved -> update again.
+  Rules generated from a board whose patterns are stale (copper changed after the last update) carry stale tuner
+  readings.
+- **A net with no pattern is not touched by an update.** List those nets with how much to add or remove (ps and mm
+  on their layer). The user adds a pattern or edits the route. A route that is too long and hard to shorten: raise
+  the reference instead (for a byte, the DQS target, so the longest DQ sits at opt), and lengthen the rest.
+- **"too_short" after an update means the meander ran out of room.** Raise the pattern's max amplitude, stretch it
+  over a longer piece of track, or move it.
+- **Spacing to other nets comes from the netclass clearance, not from custom rules.** The router, and the meanders an
+  update builds, kept the netclass clearance (0.1 mm). They ignored a custom `clearance` rule of 0.2 mm between
+  LPDDR4 tracks, both as a warning and as an error, in Walk around mode. Meanders came out 0.12-0.19 mm from their
+  neighbours. Put the crosstalk spacing into the netclass clearance (`net_settings.classes[].clearance` in the
+  `.kicad_pro`; edit it only with pcbnew closed, because KiCad rewrites the file on save). Then add DRC rules that
+  allow less where the larger value does not apply:
+
+  ```
+  (rule "bga_clearance"     (condition "<bus netclasses> && (A.intersectsCourtyard('U1') || A.intersectsCourtyard('U2'))") (constraint clearance (min 0.1mm)))
+  (rule "pair_clearance"    (condition "A.hasNetclass('<diff class>') && A.isCoupledDiffPair()")                            (constraint clearance (min 0.1mm)))
+  (rule "other_clearance"   (condition "<bus netclasses on A> && !(<bus netclasses on B>)")                                (constraint clearance (min 0.1mm)))
+  ```
+
+  Spacing between two groups (CA to DQ, 3h) cannot be a netclass value: keep it as a DRC rule and check it by hand.
+  Run DRC before and after the netclass change to confirm it adds no errors. **Still to verify:** that the meanders
+  of an update hold the netclass value; check the first update after the change.
+- **Router mode:** Walk around (or Shove), not "Highlight collisions", which places a meander into a clearance and
+  only marks it.
+
+## 6. Pitfalls
 
 - A tuning pattern's colour is the status saved when it was last updated (`last_status`), not live. Run "Update
   all tuning patterns" and DRC after any change before calling the bus tuned.
